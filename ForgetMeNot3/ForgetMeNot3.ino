@@ -36,7 +36,7 @@ enum gameStates_t {
 };
 
 
-// A long press on center button anytime jumps to BLOOM
+// A long press anytime jumps to BLOOM if this tile has 6 neighbors
 
 // Messages sent over the IR link
 
