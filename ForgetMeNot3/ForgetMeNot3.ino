@@ -126,21 +126,21 @@ enum gameState_t {
   // Jump to WIN if no more levels
   
   SHOW_ANSWER,          // User picked wrong change, show them the right one
-                        // All petals red except the one that change which is full green.
+                        // All petals red except the one that changed which is full green.
                         // Center stays yellow
-                        // All petals fade to black, center stays yellow
-                        // Exit at end of timeout
+                        // Exit at end of timeout and go to scoreboard.
   
   SCOREBOARD,           // Show what level they got to with a full screen animation
-                        // Exit on button press on center
+                        // Exit on user longpress center to start new game
 
   // Jump to SETUP
 
 
   WIN,                  // They beat all the levels!
+                        // Exit on user longpress center to start new game
+  
+  
 };
-
-const word BLLOM_TIMER_MS = 2000;   // How long to show bloom animation
 
 
 // A long press anytime jumps to BLOOM if this tile has 6 neighbors
@@ -183,9 +183,8 @@ enum messages_t {
 byte currentLevel;
 
 
-// From colorwheel here...https://learnui.design/blog/the-hsb-color-system-practicioners-primer.html
-const byte GREEN_HUE = (90 * 255)/360;
-const byte YELLOW_HUE = (60 * 255)/360;
+const byte GREEN_HUE = 77;
+const byte YELLOW_HUE = 42;
 
 
 struct stateTimer_t {
@@ -203,11 +202,12 @@ struct stateTimer_t {
 
   // Returns 0-255 to indicate how far along the timer we are (255=expired)
   byte progress() {
+    
     if (timer.isExpired()) {
       return 255;
     }
 
-    return ( timer.getRemaining() * 255 ) / initialDurration;
+    return 255-(( timer.getRemaining() * 255UL ) / initialDurration);
     
   }
 
@@ -222,8 +222,8 @@ const word BLOOM_TIME_MS=2000;
 // How long to show the "you are correct" display after a correct changed petal selection
 const word CORRECT_TIME_MS=2000;
 
-// How long to show the "you are wrong" display after an  incorrect changed petal selection
-const word WRONG_TIME_MS=2000;
+// How long to display which petal they should have pciked when they pick wrong. 
+const word SHOW_ANSWER_TIME_MS = 2000;    
 
 
 void setup() {
@@ -286,6 +286,12 @@ boolean doWeHave6Neighboors() {
   return true;
 }
 
+
+void showRainbowFlurish() {
+    uint32_t m = millis(); 
+    setColor( makeColorHSB( ( m >> 8 ) & 0xff , 0xff , m & 0xff ) );     // TODO: We owe them better than this crappy rainbow. 
+}
+
 // Current game state (only valid if weAreCenterFlag==true)
 gameState_t gameState;
 
@@ -295,29 +301,38 @@ byte changedPetal;
 // We are the center, update our state
 
 void updateStateCenter() {
-
-  byte progress = stateTimer.progress();
+  
+  byte progress = stateTimer.progress();      // Used in several places, so grab once here in case we need it. 
   
   switch (gameState) {
 
     case BLOOM: {
       // Durring bloom animation we change color from GREEN to YELLOW. Ends with YELLOW after timer expires.
-      byte hue = ( ( (YELLOW_HUE) * progress ) + ( (GREEN_HUE) * (255-progress)) ) / 255;
+      byte hue = ( ( YELLOW_HUE * progress ) + ( GREEN_HUE * (255-progress)) ) / 255;
       setColor( makeColorHSB(  hue , 255 , 255 ) );
-      // With a sparkle
-      setColorOnFace( WHITE , random(FACE_COUNT-1) );
 
-      if (progress==255 && buttonPressed()) {
-        // Pressing the button now will start the round and show the puzzle on the petals. 
-        // Note that the petals decide what to show since they know what level we are on
-        setColor(YELLOW);   // Clear the sparkle
-        setValueSentOnAllFaces( SHOW_PUZZLE );    
-        gameState=PUZZLE;
-        stateTimer.set( getShowDuration(currentLevel) ); 
-      } 
+      if (progress==255) {
+        
+        // With a little sparkle once we have fully bloomed
       
-    } break;
-    
+        if ( (millis()&0x08) ==0x08) {        
+          setColorOnFace( WHITE , random(FACE_COUNT-1) );
+        }
+
+        if (buttonPressed()) {
+          // Pressing the button now will start the round and show the puzzle on the petals. 
+          // Note that the petals decide what to show since they know what level we are on
+          setColor(YELLOW);   // Clear the sparkle
+          setValueSentOnAllFaces( SHOW_PUZZLE );    
+
+          gameState=PUZZLE;
+          stateTimer.set( getShowDuration(currentLevel) ); 
+        } 
+      }
+
+      setColor( random(1) ? WHITE : RED );
+    } return;
+      
 
     case PUZZLE: {
       // Durring this time, the user gets to study the puzzle. 
@@ -329,16 +344,18 @@ void updateStateCenter() {
         byte darkface = (byte) ((progress * (FACE_COUNT-1)) / 255);
         setColorOnFace( OFF , darkface );
       } else {
-        // Your time to study the puzzle is up! Go black!
+        // Your time to study the puzzle is up! Go dark!
         setColor(OFF);
         setValueSentOnAllFaces( SHOW_PAUSE );    
         gameState=PAUSE;
         stateTimer.set( getPauseDuration(currentLevel) );
       }
+    } return;
       
-    } break;
-
-    case PAUSE:{
+    
+    case PAUSE: {
+      // All tiles are OFF right now from the end of PUZZLE.
+      
       if (progress==255) {   // Done with pause?
 
         // Only now, at the very last second do we actually pick which petal changed. Seems wrong, right?
@@ -355,41 +372,42 @@ void updateStateCenter() {
         
         gameState=CHANGED;               
       }
-      
-    } break;
+    } return;
 
    case CHANGED: {
+      // User is looking at the puzzle with a single petal changed.
+      // This state ends when the press one of the tiles. There is no timeout. 
       
-      boolean wrongFlag=false;    // We need this for the very edge case if they try to cheat by pressig two petlas at EXACTLY the same moment.
-                                  // TODO: This is not really a practical concern, so remove if we need space
+      // scan though all petals and see if any buttons have been pressed                                  
       FOREACH_FACE(f) {
         if (!isValueReceivedOnFaceExpired(f) && getLastValueReceivedOnFace(f)==PRESSED ) {
+          
           // This petal had its button pressed
 
-          if (f==changedPetal && !wrongFlag) {
-            // They picked the right petal and only the right petal!
+          if (f==changedPetal) {
+            // They picked the right petal!
+            // TODO: Make even harder stages where you have to pick mulitple changed petals! (already in the level data structure)
             gameState = CORRECT;
             setValueSentOnAllFaces( SHOW_CORRECT );
             stateTimer.set( CORRECT_TIME_MS );
-            setColor(GREEN);             
+            setColor(GREEN);
           } else {
             // They pressed the wrong petal :(
-            wrongFlag = true;
             setValueSentOnFace( SHOW_WRONG_MISSED , changedPetal );     // Show them the one they _should_ have pressed. 
             setValueSentOnAllFaces(  SHOW_WRONG_OTHERS );                
-            stateTimer.set( WRONG_TIME_MS );
+            gameState=SHOW_ANSWER; 
+            stateTimer.set( SHOW_ANSWER_TIME_MS );
             setColor(RED);                          // I like RED here better than YELLOW, don't you? 
           }          
-        }
-              
+        }          
       }
-    } break;
+    } return;
 
     case CORRECT: {
+    
       setColor( GREEN ); 
-
       // They got it right, I think they deserve little excitment with some fading sparkles
-      if (random(255) < progress) {
+      if (random(255) > progress) {   // Lower and lower chance of sparkle as timer progresses
         setColorOnFace( WHITE , random( FACE_COUNT -1 ) );
       }
 
@@ -405,24 +423,55 @@ void updateStateCenter() {
           setValueSentOnAllFaces( SHOW_WIN );    // A spectacular flurish
           
         } else {
-                  
-          setValueSentOnAllFaces( SHOW_BLOOM );    // Get petals ready for next round. Ths will increment thier level
+
+          gameState=BLOOM; 
+          stateTimer.set( BLOOM_TIME_MS );                
+          setValueSentOnAllFaces( SHOW_BLOOM );    // Get petals ready for next round.
           
         }
       }
-    } break;
+
+    } return;
+
+    case SHOW_ANSWER: {
+      // Wait for them to see the answer they should have picked.
+      // TODO: Maybe some animation here? 
+
+      if (progress==255) {
+        setColor( BLUE );
+        setValueSentOnAllFaces( SHOW_SCORE_STEP_EVEN );    // TODO: Make real scoreboard display
+        gameState = SCOREBOARD;        
+        buttonPressed();              // Clear any pending button pressees to be ready for the presss that will terminate SCOREBOARD
+      }
+    } return;
+
+
+    case SCOREBOARD: {
+      // Show how many levels they achived.
+      // User exists by longpress center to start new game.
+      // TODO: Just shows blue for now as placeholder
+
+    } return;      
+
+    case WIN: {
+      // They deserve a nice rainbox.
+      // Exits when user longpresses a center to start new game
+
+      showRainbowFlurish();
+    } return;            
   }
 }
 
 #define PETAL_COLOR_COUNT 6
 
-Color petalColors[6] = {
+Color petalColors[] = {
   makeColorHSB( 30,200,255),  // SALMON
   makeColorHSB(255,200,255),  // PINK
   makeColorHSB(220,200,255),  // LIGHT PINK
   makeColorHSB(180,200,255),  // VIOLET
   makeColorHSB(150,200,255),  // INDIGO
   makeColorHSB(120, 50,255),  // PERIWINKLE/WHITE
+  BLUE
 };
 
 byte getRandomPetalColorIndex() {
@@ -509,7 +558,8 @@ struct puzzle_t {
   union {                // We use this to remember the data used to make the current puzzle (and it's changed version)
     
     struct {
-      byte index;    // Index of the current color in petalColors
+      byte index;         // Index of the current color in petalColors
+      byte contraIndex;   // Index of the alternate color to show as changed. This has some randomness, so we we calculate at set time
     } color;
 
     struct {
@@ -538,7 +588,8 @@ struct puzzle_t {
     switch (type) {
       
       case COLOR:         // Each petal is a single color
-        data.color.index = getRandomPetalColorIndex();
+        data.color.index       = getRandomPetalColorIndex();
+        data.color.contraIndex = getContraColorIndex( data.color.index  , difficulty );   
         break;
         
       case DIRECTION:     // Each petal is lit a single direction
@@ -550,7 +601,7 @@ struct puzzle_t {
         data.dicromic.exteriorIndex = getContraColorIndex( data.dicromic.interiorIndex , difficulty );
         break;
                 
-      case ROTATION:      // Each petal animates rotation CW or CCW      
+      case ROTATION:      // Each petal animates rotation CW or CCW    
         data.rotation.clockwise = (random(1)==0);
         break;
       
@@ -565,11 +616,10 @@ struct puzzle_t {
       
       case COLOR: {         // Show the indicated color index on all pixels
 
-        byte showColorIndex =data.color.index;; 
+        byte showColorIndex=data.color.index;           
         
         if (changed) {
-          // Change the color to a different one, and how different is based on the difficulty
-          showColorIndex =  getContraColorIndex( showColorIndex , difficulty );
+          showColorIndex =  data.color.contraIndex;
         }
       
         setColor( petalColors[ showColorIndex ] ); 
@@ -591,9 +641,6 @@ struct puzzle_t {
                 
       case DICHROMIC: {     // Show inner on 3 faces pointing to center, outer on other 3 faces
 
-        Color interiorColor = petalColors[ data.dicromic.interiorIndex];
-        Color exteriorColor = petalColors[ data.dicromic.exteriorIndex];
-
         byte showFaceDirection = centerFace;
         byte showFaceOtherDirection = opositeFace(showFaceDirection);
 
@@ -603,10 +650,12 @@ struct puzzle_t {
         }
 
         setColorIndexOnSide( data.dicromic.interiorIndex , showFaceDirection );
-        setColorIndexOnSide(  data.dicromic.exteriorIndex , showFaceOtherDirection );       
+        setColorIndexOnSide( data.dicromic.exteriorIndex , showFaceOtherDirection );       
       } break;
                 
       case ROTATION: {  // Show a single white pixel rotating based on millis so they will be out of sync as show in instructions 
+        
+        // TODO: maybe sync/unsync or varry speed based on difficulty
 
         // TODO: This will be huge code size, replace if we run out of room. 
         byte rotationFace = (millis() / ROTATION_MS_PER_STEP) % FACE_COUNT;
@@ -629,42 +678,49 @@ struct puzzle_t {
 puzzle_t puzzle; 
 
 
-// The face of our current center (only valid if areWeCenterFlag==false)
-byte centerFace;
 
 // This makes sure we only update the level once per cycle though the states
 bool levelUpdatedInterlock;
 
-void updateStatePetal() {
+// Update the petal based on message received from a center on face f
+// return true if there was a center on the face, false if nothing or a petal on that face
 
-  if (!isValueReceivedOnFaceExpired(centerFace)) {    
-    byte messageFromCenter = getLastValueReceivedOnFace(centerFace);
+bool updateStatePetalOnFace(byte f) {
+
+  if (!isValueReceivedOnFaceExpired(f)) {    
+    byte messageFromCenter = getLastValueReceivedOnFace(f);
 
     switch (messageFromCenter) {
 
-      case SHOW_BLOOM_0:        // Show single green pixel pointing to center. Reset level to 0.
-        /* FALL THOUGH */       // BLOOM_) is just a specical case of BLOOM, and that is handled in main loop. 
+      case SHOW_BLOOM_0:        // BLOOM_0 is special case that starts a new game, but display logic is same. The reset logic is special cased in loop().
       case SHOW_BLOOM:          // Show single green pixel pointing to center. Increment level.         
 
         // Note here that we call puzzle.set() repeatedly while the bloom animation is running. This adds some entorpy. 
         puzzle.set( levels[currentLevel] ); 
         
         setColor( OFF );
-        setColorOnFace( GREEN , centerFace );
-
-        return;
+        setColorOnFace( GREEN , f );
+        return true;
 
       case SHOW_PUZZLE:        // Show the current puzzle on our pixels
-        puzzle.show(centerFace , false );     // Show a current puzzle, not changed
-        return;
+        puzzle.show( f , false );     // Show a current puzzle, not changed
+        return true;
 
       case SHOW_PAUSE:        // The pause between showing the unchanged and changed version
         setColor(OFF);        // This is an editorial decision. I like it all going dark here. 
-        return;
+
+        // Clear any pending button press to get ready for SHOW_CHANGED when user can press button
+        setValueSentOnFace( IDLE , f ); 
+        
+        return true;
         
       case SHOW_CHANGED:        // Show the current puzzle on our pixels, but in the "changed" version
-        puzzle.show(centerFace , true );     // Show a current puzzle, changed
-        return;
+        puzzle.show( f , true );     // Show a current puzzle, changed
+
+        if (buttonPressed()) {
+          setValueSentOnFace( PRESSED , f  );     // We use the petals's sticky value sent to hold the pressed button state
+        }        
+        return true;
 
       case SHOW_CORRECT:             // Indicate to the user they picked the right peice
 
@@ -677,71 +733,117 @@ void updateStatePetal() {
         
         setColor( GREEN );      // TODO: we can be more creative here! 
         setColorOnFace( WHITE , random( FACE_COUNT - 1) );    // We need some sparkle here - they got it right, lets celibrate!
-        break;
+        return true;
 
       case SHOW_WRONG_MISSED:   // Show user they made the wrong choice and this tile was the changed one
         setColor( GREEN );      // TODO: we can be more creative here! 
-        break;
+        return true;
             
       case SHOW_WRONG_OTHERS:   // Show user they made the wrong choice and this tile was the not changed one
         setColor( RED );        // TODO: we can be more creative here! 
-        break;
+        return true;
 
-      case SHOW_WIN:            // Show a pretty winning flurish.         
-        uint32_t m = millis(); 
-        setColor( makeColorHSB( ( m >> 8 ) & 0xff , 0xff , m & 0xff ) );     // TODO: We owe them better than this. 
-        break;
-      
-    }
-
-    // Reset the button flag each time the message from the center changes
-    if (didValueOnFaceChange(centerFace)) {
-      setValueSentOnFace( IDLE , centerFace ); 
-    }
-
-    // Note we only bother sending the button pressed message to the center face
-    if (buttonPressed()) {
-      setValueSentOnFace( PRESSED , centerFace ); 
-    }
-
+      case SHOW_SCORE_STEP_EVEN:   // TODO: Placeholders
+      case SHOW_SCORE_STEP_ODD:
+        setColor( BLUE);        // TODO: we can be more creative here! 
+        return true;
         
-  } else {
-    // TODO: Might be nice to have a timeout here where if a petal has not seen a center for a few seconds it then forgets the current game.
-  }
+      case SHOW_WIN:            // Show a pretty winning flurish.
+        showRainbowFlurish();         
+        return true;
+
+    } 
+  } 
+
+  return false;
   
 }
 
 
-  
+// The face of our current center (only valid if areWeCenterFlag==false)
+// This defaults to 0, which is OK we will slightly prefer a center on that face if there are more than one center
+// which is not really a case we need to care about
+byte centerFace;
+
+// Returns true if we have 6 neighboors and all of them are petals
+// This is a bit of a hack to cover the case where we want to automatically start
+// when 7 tiles come together right after a download/power-up. 
+
+bool updateStatePetal() {
+
+  if (updateStatePetalOnFace(centerFace)) {
+    // We found our expected center
+    return false;
+  }
+
+  // If we get here then we did not find the center on the expected face, so we will look on all the faces.
+  // This is slightly redundant (we check one face twice), but that is OK.
+  // Note that we only have all this extra logic to handle the edge case of a tile collection getting
+  // taken appart in the middle of a game and then getting put back together again but with a petal rotated.
+
+  FOREACH_FACE(f) {
+    if (updateStatePetalOnFace(centerFace)) {
+      // We found a center
+      centerFace=f;
+      return false;
+    }    
+  }
+
+  // if we get here then we have no center connected at the moment
+
+  // we check for a special case where we have 6 neighboors (which we now know are all also petals)
+  // and if we do then we will become center and start a game. This covers the situaltion right after a 
+  // download where there no game has ever been started and the user puts the 7 tiles together, in which 
+  // case the game starts automatically. 
+
+  if (doWeHave6Neighboors()) {
+    // Auto game start
+    return true;
+  }
+
+  // If we do not have a center then show green 
+  // TODO: I think maybe a rotating animation better here? 
+  setColor( GREEN );
+
+  return false;
+}
+
+
+// This can happen in two cases:
+// 1. This is the center of a 7 tile formation and user long presses (manual start)
+// 2. This is the center of a 7 tile formation and none of the tiles are currently a center (autostart)
+
+void resetGameBecomeCenter() {
+  weAreCenter=true;      
+  gameState=BLOOM;
+  stateTimer.set( BLOOM_TIME_MS );
+  currentLevel=0;
+  setColor(YELLOW);
+  setValueSentOnAllFaces( SHOW_BLOOM_0 );   // Reset all petals to level 0    
+  buttonPressed();    // Clear any pending button presses so we can detect the press to start the game from BLOOM state
+}
 
 void loop() {
 
   // Check for resets to the global state machine first
 
-  // First check if we should become a center
-  // If we have neighboors on all 6 sides, then we will become center and start a new game
-  // We also start a new game if we have neighboors on all sides and the button is long pressed
+  // First check if any neighboor is starting a new game as center. This will make us his petal
+  // unconditionally, even if we are currently a center.
 
-  if (!weAreCenter || buttonLongPressed()  ) {
-    if (doWeHave6Neighboors()) {
-      weAreCenter=true;      
-      gameState=BLOOM;
-      stateTimer.set( BLOOM_TIME_MS );
-      currentLevel=0;
-      setColor(YELLOW);
-      setValueSentOnAllFaces( SHOW_BLOOM_0 );   // Reset all petals to level 0
-      return;
-    }
-  }
-
-  // Next check if we should recognize a new center and reset
 
   FOREACH_FACE(f) {
-    if (!isValueReceivedOnFaceExpired(f) && getLastValueReceivedOnFace(f)==SHOW_BLOOM_0) {
-      weAreCenter=false; 
+    if ( !isValueReceivedOnFaceExpired(f) && getLastValueReceivedOnFace(f) == SHOW_BLOOM_0) {
+      // Reset game as petal. Note this will be repeated as long as BLOOM_0 is in process, but it is idempotent 
+      weAreCenter=false;
       centerFace=f;
       currentLevel=0;
     }
+  }
+  
+  if (buttonLongPressed() && doWeHave6Neighboors() ) {
+    // Manual game reset where we have 6 neighboors and user longpresses    
+    resetGameBecomeCenter();
+    return;
   }
 
   // OK, if we get here then we are in stable gameplay so handle normal stuff
@@ -749,7 +851,11 @@ void loop() {
   if (weAreCenter) {
     updateStateCenter();
   } else {
-    updateStatePetal();    
+    if (updateStatePetal()) {
+      // auto game reset when we are a petal and we are surrounded by 6 petals
+      resetGameBecomeCenter();
+      return;
+    }
   }
   
 }
