@@ -558,32 +558,6 @@ struct puzzle_t {
     
   }
 
-  void change() {     // Change the current puzzle according to level
-
-    switch (type) {
-      
-      case COLOR:         // Color changes to contra color depending on difficulty
-        data.color.index = getContraColorIndex( data.color.index  , difficulty );
-        break;
-        
-      case DIRECTION:     // Lit petal changes to oposite face
-        data.direction.face = opositeFace( data.direction.face );
-        break;
-        
-      case DICHROMIC:     // Inner and outter colors switch places
-        byte t = data.dicromic.interiorIndex ;
-        data.dicromic.interiorIndex = data.dicromic.exteriorIndex ;
-        data.dicromic.exteriorIndex = t;
-        break;
-                
-      case ROTATION:      // Rotation direction reverses      
-        data.rotation.clockwise = !data.rotation.clockwise;
-        break;
-      
-    }
-      
-  }
-
   void show(byte centerFace, bool changed) {       // Show the puzzle on our pixels. if changed==true, the then alternate version is shown
 
 
