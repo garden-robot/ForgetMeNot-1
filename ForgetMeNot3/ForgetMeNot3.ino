@@ -1,86 +1,4 @@
 
-
-enum gameState_t {
-  SETUP,                // Waiting for someone (possibly me) to become center
-                        // All tiles full green
-                        // Exit when either we detect we are center or we get a message from a center
-
-                        // Here the tile remembers if it is center (it has 6 neighboors)
-
-  ESTABLISH_CENTER,     // We have 6 nieghboors, now wait for them all to ack us as the center
-                        // Exit when we get VOTE_CENTER message on all Faces                        
-                        
-  BLOOM,                // Show that we are getting ready to start a level
-                        // Center animate green to yellow, petals animate full green to just one green pixel facing center
-                        // Exit at end of animation
-
-  READY,                // Ready to start playing when user pushes center button
-                        // Center yellow sparkle
-                        // Exit on button press on center
-
-  PUZZLE,               // Show the puzzle
-                        // Exit at end of timeout
-  
-  PAUSE,                // Pause to make them forget what they saw
-                        // Center yellow, petals green dot towards center
-                        // Exit at end of timeout
-  
-  CHANGED,              // Show the puzzle but changed from the last PUZZLE state
-                        // Center yellow?
-                        // Exit when user pushes one of the petals
-
-  // Jump to ANSWER is user selects wrong tile
-  
-  CORRECT,              // User found change. 
-                        // 
-  // Return to BLOOM which will show all tiles full GREEN and then animate to ready for next round
-  
-  SHOW_ANSWER,          // User picked wrong change, show them the right one
-                        // All petals red except the one that change which is full green.
-                        // Center stays yellow
-                        // All petals fade to black, center stays yellow
-                        // Exit at end of timeout
-  
-  SCOREBOARD,           // Show what level they got to with a full screen animation
-                        // Exit on button press on center
-
-  // Jump to SETUP
-};
-
-
-// A long press anytime jumps to BLOOM if this tile has 6 neighbors
-// Anytime a leaf goes too long without seeing any messages, it will go back to SETUP
-// Anytime a center sees a RESET, it will become a leaf
-
-// Messages sent over the IR link
-
-enum messages_t {
-
-  // Sent by Center
-
-  CENTER_REQUEST,     // We are asking everyone to vote us to be center
-  SHOW_PUZZLE,        // Pick a random puzzle to show based on puzzle type for level
-  SHOW_PAUSE,         // Show green on face pointing to center
-  SHOW_CHANGED,       // Change your display based on current puzzle type and difficulty (only sent to faces that should change)
-  SHOW_CORRECT,       // When user makes correct pick, all tiles get this (currently green).
-  SHOW_WRONG_MISSED,  // When user makes a wrong pick, this is shown on the missed tile (currently green)
-  SHOW_WRONG_OTHERS,  // When user makes a wrong pick, this is shown on all but the missed tile (currently red)
-
-  SHOW_SCORE_STEP_EVEN,  // Show the next step in a score progression. Message alternates between even and odd on each step.
-  SHOW_SCORE_STEP_ODD,   // First 4 steps are 0-3 red LEDs on permitier, then middle LED lights and starts progresion over. 
-
-  // Sent by Petals
-
-  ACK_CENTER,            // Ack the center_request. Reset to level 0.
-  IDLE,                  // Default sent by a petal (including a tile that is in SETUP waiting for center to be found)
-  PRESSED,               // Button pressed since last transition. Cleared whenever the petal gets a message from center.
-  ACK_SCORE_STEP_EVEN,   // Sent after getting SHOW_SCORE_STEP_EVEN to enable ping-pong acking
-  ACK_SCORE_STEP_ODD     // Sent after getting SHOW_SCORE_STEP_ODD to enable ping-pong acking   
-  
-};
-
-
-
 enum puzzleType_t {
   COLOR,        // Each petal is a single color
   DIRECTION,    // Each petal is lit a single direction
@@ -176,140 +94,291 @@ level_t levels[MAX_LEVEL] {
 };
 
 
-// Current game state
-gameState_t gameState = SETUP;
-
 // Are we currently the center?
-bool centerFlag;
+bool weAreCenter=false;
 
-// The face of our current cenrter (if centerFlag==0)
-byte centerFace;
+// The current game state, only valid when weAreCenterFlag is true
 
-// Next time we change state (for states that have time-based exit condition)
-Timer nextStateChangeTimer;
+enum gameState_t {
+  
+  BLOOM,                // Show that we are getting ready to start next level
+                        // Center animate green to yellow, petals animate full green to just one green pixel facing center
+                        // Exit on button press on center
+                        
+  PUZZLE,               // Show the puzzle
+                        // Exit at end of timeout
+  
+  PAUSE,                // Pause to make them forget what they saw
+                        // Center yellow, petals green dot towards center
+                        // Exit at end of timeout
+  
+  CHANGED,              // Show the puzzle but changed from the last PUZZLE state
+                        // Center yellow?
+                        // Exit when user pushes one of the petals
 
-// We remember the durration of the current timer so we can calculate our progress into it.
-// (There really should be a Timer.getProgress() )
-word currentTimerDurration; 
+  // Jump to ANSWER if user selects wrong tile
+  
+  CORRECT,              // User found change. 
+                        // Exit at end of timeout.
+
+  
+  // Jump to BLOOM
+  
+  SHOW_ANSWER,          // User picked wrong change, show them the right one
+                        // All petals red except the one that change which is full green.
+                        // Center stays yellow
+                        // All petals fade to black, center stays yellow
+                        // Exit at end of timeout
+  
+  SCOREBOARD,           // Show what level they got to with a full screen animation
+                        // Exit on button press on center
+
+  // Jump to SETUP
+};
+
+const word BLLOM_TIMER_MS = 2000;   // How long to show bloom animation
+
+
+// A long press anytime jumps to BLOOM if this tile has 6 neighbors
+// Anytime a leaf goes too long without seeing any messages, it will go back to SETUP
+// Anytime a center sees a RESET, it will become a leaf
+
+// Messages sent over the IR link
+
+enum messages_t {
+
+  // Sent by Center
+
+  SHOW_BLOOM_0,       // Show single green pixel pointing to center. Reset level to 0.
+  SHOW_BLOOM,         // Show single green pixel pointing to center. Increment level. 
+  
+  SHOW_PUZZLE,        // Pick a random puzzle to show based on puzzle type for current level.
+  SHOW_PAUSE,         // Show green on face pointing to center
+  SHOW_CHANGED,       // Change your display based on current puzzle type and difficulty (only sent to faces that should change)
+  SHOW_CORRECT,       // When user makes correct pick, all tiles get this (currently green).
+  SHOW_WRONG_MISSED,  // When user makes a wrong pick, this is shown on the missed tile (currently green)
+  SHOW_WRONG_OTHERS,  // When user makes a wrong pick, this is shown on all but the missed tile (currently red)
+
+  SHOW_SCORE_STEP_EVEN,  // Show the next step in a score progression. Message alternates between even and odd on each step.
+  SHOW_SCORE_STEP_ODD,   // First 4 steps are 0-3 red LEDs on permitier, then middle LED lights and starts progresion over. 
+
+  // Sent by Petals
+
+  IDLE,                  // Sent by default
+  PRESSED,               // Button pressed since last transition. Cleared whenever the petal gets a new message from center.
+  
+  ACK_SCORE_STEP_EVEN,   // Sent after getting SHOW_SCORE_STEP_EVEN to enable ping-pong acking
+  ACK_SCORE_STEP_ODD     // Sent after getting SHOW_SCORE_STEP_ODD to enable ping-pong acking   
+  
+};
+
 
 // Current play level
 byte currentLevel;
-
-
-void setup() {
-  // put your setup code here, to run once:
-}
 
 
 // From colorwheel here...https://learnui.design/blog/the-hsb-color-system-practicioners-primer.html
 const byte GREEN_HUE = (90/360) * 255;
 const byte YELLOW_HUE = (60/360) * 255;
 
-// Progress is 0-255 indicating how far along in current animation we are
 
-void display( const gameState_t gameState , const bool centerFlag , const byte progress ) {
+struct stateTimer_t {
 
+  Timer timer;
+  
+  // We remember the durration of the current timer so we can calculate our progress into it.
+  // (There really should be a Timer.getProgress() )
+  word initialDurration; 
+    
+  void set( word t ) {
+    timer.set( t );
+    initialDurration = t;  
+  }
+
+  // Returns 0-255 to indicate how far along the timer we are (255=expired)
+  byte progress() {
+    if (timer.isExpired()) {
+      return 255;
+    }
+
+    return ( timer.getRemaining() * 255 ) / initialDurration;
+    
+  }
+
+};
+
+stateTimer_t stateTimer;
+
+
+// How long to show the bloom animation at the start of each round
+const word BLOOM_TIME_MS=2000;  
+
+
+void setup() {
+  // Default display at power up
+  // TODO: Do we want to also start here after waking from sleep?
+  setColor( GREEN );
+  setValueSentOnAllFaces( IDLE );
+}
+
+
+// Control puzzle show and pause times based on level
+// TODO: TUNE THESE
+const word MAX_SHOW_TIME=5000;    // 5 seconds on
+const word MIN_SHOW_TIME=3000;    // 3 seconds on
+const word MIN_PAUSE_TIME=1500;    // 1.5 second  off
+const word MAX_PAUSE_TIME=3000;    // 3 seconds off
+const byte CURVE_BEGIN_LEVEL=1;
+const byte CURVE_END_LEVEL=10;
+
+/*
+   returns a duration in milliseconds that the puzzle will show for
+*/
+word getShowDuration(byte level) {
+  if (level < CURVE_BEGIN_LEVEL) {
+    return MAX_SHOW_TIME; // max time is easier i.e. lower level
+  }
+  else if (level > CURVE_END_LEVEL) {
+    return MIN_SHOW_TIME; // min time is harder i.e. higher level
+  }
+  else {
+    // everything in between
+    return MAX_SHOW_TIME - (level - CURVE_BEGIN_LEVEL) * (MAX_SHOW_TIME - MIN_SHOW_TIME) / ( CURVE_END_LEVEL - CURVE_BEGIN_LEVEL);
+  }
+
+}
+
+/*
+   returns a duration in milliseconds that the puzzle will show for
+*/
+word getPauseDuration(byte level) {
+
+  if (level < CURVE_BEGIN_LEVEL) {
+    return MIN_PAUSE_TIME; // max time is easier i.e. lower level
+  }
+  else if (level > CURVE_END_LEVEL) {
+    return MAX_PAUSE_TIME; // min time is harder i.e. higher level
+  }
+  else {
+    // everything in between
+    return MIN_PAUSE_TIME + (level - CURVE_BEGIN_LEVEL) * (MAX_PAUSE_TIME - MIN_PAUSE_TIME) / ( CURVE_END_LEVEL - CURVE_BEGIN_LEVEL);
+  }
+}
+
+boolean doWeHave6Neighboors() {
+  FOREACH_FACE(f) {
+    if (isValueReceivedOnFaceExpired(f)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Current game state (only valid if weAreCenterFlag==true)
+gameState_t gameState;
+
+// Which petal changed? (only valid in CHANGED state)
+byte changedPetal;
+
+// We are the center, update our state
+
+void updateStateCenter() {
+
+  byte progress = stateTimer.progress();
+  
   switch (gameState) {
 
-    case SETUP: {
-      // Everything is always green durring setup
-      setColor( GREEN );      
-    } break;
-
-
     case BLOOM: {
-      if (centerFlag) {
-        
-        // Durring bloom animation we change color from GREEN to YELLOW
-        byte hue = ( ( (YELLOW_HUE/2) * progress ) + ( (GREEN_HUE/2) * (255-progress)) ) / 255;
-        setColor( makeColorHSB(  hue , 255 , 255 ) );
-        // With a sparkle
-        setColorOnFace( WHITE , random(FACE_COUNT-1) );
-      } else {
-        // Not center
-        setColor( GREEN ); 
+      // Durring bloom animation we change color from GREEN to YELLOW. Ends with YELLOW after timer expires.
+      byte hue = ( ( (YELLOW_HUE) * progress ) + ( (GREEN_HUE) * (255-progress)) ) / 255;
+      setColor( makeColorHSB(  hue , 255 , 255 ) );
+      // With a sparkle
+      setColorOnFace( WHITE , random(FACE_COUNT-1) );
+
+      if (progress==255 && buttonPressed()) {
+        // Pressing the button now will start the round and show the puzzle on the petals. 
+        // Note that the petals decide what to show since they know what level we are on
+        setColor(YELLOW);   // Clear the sparkle
+        setValueSentOnAllFaces( SHOW_PUZZLE );    
+        gameState=PUZZLE;
+        stateTimer.set( getShowDuration(currentLevel) );  
       }
-      
-    } break;
-      
+      break;
+    }
+
+    case PUZZLE: {
+      // Durring this time, the user gets to study the puzzle. 
+      // TODO: Delete this little countdown stopwatch animation here for fun that is not in the orginal game. 
+
+      if (progress < 255 ) {
+        // Animation running, show center face ticking down to full black...
+        // TODO: Does this look right?
+        byte darkface = (byte) ((progress * (FACE_COUNT-1)) / 255);
+        setColorOnFace( OFF , darkface );
+      } else {
+        // Your time to study the puzzle is up! Go black!
+        setColor(OFF);
+        setValueSentOnAllFaces( SHOW_PAUSE );    
+        gameState=PAUSE;
+        stateTimer.set( getPauseDuration(currentLevel) );
+      }
+    }
+        
   }
+  
   
 }
 
-const word BLOOM_TIME_MS=2000;
+// The face of our current center (only valid if areWeCenterFlag==false)
+byte centerFace;
 
+void updateStatePetal() {
+
+
+  
+}
 
 void loop() {
 
-  // First we update our state based on outside world and time 
+  // Check for resets to the global state machine first
 
-  // Read messages from all faces
+  // First check if we should become a center
+  // If we have neighboors on all 6 sides, then we will become center and start a new game
+  // We also start a new game if we have neighboors on all sides and the button is long pressed
 
-  bool anyExpiredFacesFlag = false;   // Keep track if there are any empty faces so we can tell if we are a center
+  if (!weAreCenter || buttonLongPressed()  ) {
+    if (doWeHave6Neighboors()) {
+      weAreCenter=true;      
+      gameState=BLOOM;
+      stateTimer.set( BLOOM_TIME_MS );
+      currentLevel=0;
+      setColor(YELLOW);
+      setValueSentOnAllFaces( SHOW_BLOOM_0 );   // Reset all petals to level 0
+      return;
+    }
+  }
+
+  // Next check if we should recognize a new center and reset
 
   FOREACH_FACE(f) {
-    if (!isValueReceivedOnFaceExpired(f)) {
-      
-      // Active neighboor
-
-      const byte m=valueReceivedOnFace(f);
-
-      if (centerFlag) {
-        // We are the center, update our state as nessisary
-
-        if (gameState==
-
-      } else {
-        // We are not the center...
-        // so we always accept the new state of the center
-        if (m!=gameSatet && m!=SETUP) {
-          gameState = m;
-          centerFace=f;
-
-          switch (gameState) {
-
-            case BLOOM: {
-              nextStateTimer.set(BLOOM_TIME_MS);
-            } break;
-            
-          }
-        }          
-      }
-    } else {
-      anyExpiredFacesFlag=true;
+    if (!isValueReceivedOnFaceExpired(f) && getLastValueReceivedOnFace(f)==SHOW_BLOOM_0) {
+      weAreCenter=false; 
+      centerFace=f;
+      currentLevel=0;
+      setValueSentOnAllFaces( IDLE );
+      setColor( OFF );
+      setColorOnFace( GREEN , f );
+      return;
     }
-    
-  }
-
-  if (!anyExpiredFacesFlag){
-
-    // Unconditionally reset if we are a center and there is a long press
-    
-    if (buttonLongPressed()) {
-        state = SETUP;
-    }
-
-    // If we are at a center and are currently in SETUP mode, then we are good to start the game
-
-    if (state == SETUP ) {
-      // We ae in a proper game state arrangement
-      state = BLOOM;
-      nextStateChangeTimer = BLOOM_TIME_MS;
-      centerFlag=true; 
-    }
-    
   }
 
 
-  
+  // OK, if we get here then we are in stable gameplay so handle normal stuff
 
-
-  // Next update our display based on current state
-
-
-  void display( gameState , centerFlag , const byte progress ) {
-  
+  if (weAreCenter) {
+    updateStateCenter();
+  } else {
+    updateStatePetal();    
   }
-
   
 }
