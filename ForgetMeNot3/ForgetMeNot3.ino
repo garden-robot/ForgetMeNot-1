@@ -594,6 +594,7 @@ struct puzzle_t {
         byte showColorIndex =data.color.index;; 
         
         if (changed) {
+          // Change the color to a different one, and how different is based on the difficulty
           showColorIndex =  getContraColorIndex( showColorIndex , difficulty );
         }
       
@@ -605,6 +606,8 @@ struct puzzle_t {
         byte showDirectionFace=data.direction.face; 
 
         if (changed) {
+          // make the direction point the other way
+          // TODO: Should there also be other ways it can pint at harder levels? 
           showDirectionFace = opositeFace( showDirectionFace );
         }
         
@@ -621,6 +624,7 @@ struct puzzle_t {
         byte showFaceOtherDirection = opositeFace(showFaceDirection);
 
         if (changed) {
+          // swap inner and outer colors
           swap( showFaceDirection , showFaceOtherDirection );
         }
 
@@ -634,6 +638,7 @@ struct puzzle_t {
         byte rotationFace = (millis() / ROTATION_MS_PER_STEP) % FACE_COUNT;
 
         if (changed) {
+          // Revese direction
           rotationFace = FACE_COUNT - 1 - rotationFace;
         }
 
