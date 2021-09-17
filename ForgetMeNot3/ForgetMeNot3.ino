@@ -20,7 +20,7 @@ struct level_t {
 // Make PROGMEM if we run out of RAM
 level_t levels[MAX_LEVEL] {
   { COLOR     , 1 , 1  }, // Level  0
-  { COLOR     , 1 , 1  }, // Level  1
+  { ROTATION     , 1 , 1  }, // Level  1
   { COLOR     , 1 , 1  }, // Level  2
   { COLOR     , 1 , 1  }, // Level  3
   { COLOR     , 2 , 1  }, // Level  4
@@ -685,7 +685,7 @@ struct puzzle_t {
         // TODO: This will be huge code size, replace if we run out of room. 
         byte rotationFace = (millis() / ROTATION_MS_PER_STEP) % FACE_COUNT;
 
-        if (changed) {
+        if (changed ^ data.rotation.clockwise) {      // This is a bit tricky, but see why it works? (Remember that ^ is XOR so true if either input true, but not both)
           // Revese direction
           rotationFace = FACE_COUNT - 1 - rotationFace;
         }
