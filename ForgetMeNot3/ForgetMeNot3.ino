@@ -128,13 +128,11 @@ enum gameState_t {
   // Jump to BLOOM if there is another level
   // Jump to WIN if no more levels
   
-  SHOW_ANSWER,          // User picked wrong change, show them the right one
+  ANSWER,          // User picked wrong change, show them the right one
                         // All petals red except the one that changed which is full green.
                         // Center stays yellow
                         // Exit at end of timeout and go to scoreboard.
 
-  SCOREBOARD_CLEAR,     // Clear petals, get ready to display scoreboard. 
-  
   SCOREBOARD,           // Show what level they got to with a full screen animation
                         // Exit on user longpress center to start new game
 
@@ -171,9 +169,10 @@ enum messages_t {
 
   SHOW_WIN,           // When user beats all levels (currently animated rainbow)
 
-  SHOW_SCARE_CLEAR,      // Clear the petals for the Scoreboard animation. Note this is not locked in so should look consistant with a score step. 
-  SHOW_SCORE_STEP_EVEN,  // Show the next step in a score progression. Message alternates between even and odd on each step.
-  SHOW_SCORE_STEP_ODD,   // 0-3 LEDs on permitier, then starts over in next scoreboard roation color
+  SHOW_SCORE_0,       // Score beofre the indicator has come around to it. Currently the same visually as SHOW_BLOOM
+  SHOW_SCORE_1,       // 1-3 edge LEDs lit
+  SHOW_SCORE_2,       
+  SHOW_SCORE_3,       
 
   // Sent by Petals
 
@@ -181,10 +180,6 @@ enum messages_t {
 
   IDLE,                  // Sent by default
   PRESSED,               // Button pressed since last transition. Cleared whenever the petal gets a new message from center.
-
-  ACK_SCORE_CLEAR,       // Ready to start the scoreboard display
-  ACK_SCORE_STEP_EVEN,   // Sent after getting SHOW_SCORE_STEP_EVEN to enable ping-pong acking
-  ACK_SCORE_STEP_ODD     // Sent after getting SHOW_SCORE_STEP_ODD to enable ping-pong acking   
   
 };
 
@@ -237,8 +232,13 @@ const word BLOOM_TIME_MS=2000;
 const word CORRECT_TIME_MS=2000;
 
 // How long to display which petal they should have pciked when they pick wrong. 
-const word SHOW_ANSWER_TIME_MS = 2000;    
+const word ANSWER_TIME_MS = 2000;    
 
+// How long between when we drop into scoreboard display and when we start ticking off levels
+const word SCORE_START_TIME_MS = 500;    
+
+// How long between level ticks in scoreboard display. 
+const word SCORE_TICK_TIME_MS = 500;    
 
 void setup() {
   // Default display at power up
@@ -323,9 +323,9 @@ gameState_t gameState;
 // Which petal changed? (only valid in CHANGED state)
 byte changedPetal;
 
-// Used by both the center and the petals for the final scoreboard animation, but used differently.
-byte scoreboardMinor;    // This counts the 3 pixels on the edge of each petal.
-byte scoreboardMajor;    // For center, which face we are on. For petal, which roation cycle are we on. 
+// Used by the center for the final scoreboard animatimation
+byte scoreboard_tick_face=0;
+byte scoreboard_tick_step=0;
 
 // We are the center, update our state
 
@@ -375,8 +375,8 @@ void updateStateCenter() {
           setValueSentOnAllFaces( SHOW_PUZZLE );    
 
           gameState=PUZZLE;
-          stateTimer.set( getShowDuration(currentLevel) ); 
-        } 
+          stateTimer.set( getShowDuration(currentLevel) );       
+          } 
       }
 
     } return;
@@ -444,8 +444,8 @@ void updateStateCenter() {
             // They pressed the wrong petal :(
             setValueSentOnAllFaces(  SHOW_WRONG_OTHERS );                            
             setValueSentOnFace( SHOW_WRONG_MISSED , changedPetal );     // Show them the one they _should_ have pressed. 
-            gameState=SHOW_ANSWER; 
-            stateTimer.set( SHOW_ANSWER_TIME_MS );
+            gameState=ANSWER; 
+            stateTimer.set( ANSWER_TIME_MS );
             setColor(RED);                          // I like RED here better than YELLOW, don't you? 
           }          
         }          
@@ -481,40 +481,57 @@ void updateStateCenter() {
 
     } return;
 
-    case SHOW_ANSWER: {
+    case ANSWER: {
       // Wait for them to see the answer they should have picked.
       // TODO: Maybe some animation here? 
 
       if (progress==255) {
         setColor( BLUE );     // For now show blue in the center to indicate scoreboard
-        gameState = SCOREBOARD_CLEAR;
-        setValueSentOnAllFaces( SHOW_SCOREBOARD_CLEAR ); 
+        gameState = SCOREBOARD;
+        scoreboard_tick_face=0;
+        scoreboard_tick_step=0;
+        setValueSentOnAllFaces( SHOW_SCORE_0 ); 
+        stateTimer.set( SCORE_START_TIME_MS );   
+
+        #warning 
+        currentLevel=15;
       }
     } return;
 
 
-    case SCOREBOARD_CLEAR: {
-      // Wait for all the petals to ACK that they have cleared and are ready for scoreboard display
-      if (checkAll6FacesGetting( ACK_SCOREBOARD_CLEAR )) {
-        gameState = SCOREBOARD;        
-        setColor( OFF );
+    case SCOREBOARD: {
+
+      if (progress==255) {      // Same result, but more efficient that checking isExpired() 
+        // time for next tick
+        if (currentLevel) {
+          // Still have more levels to tick off
+
+          // Convert the step into a sendable message. There should be a better way. 
+          static const byte scoreboard_tick_messages[] = { SHOW_SCORE_1 , SHOW_SCORE_2 , SHOW_SCORE_3 };
+                    
+          setValueSentOnFace( scoreboard_tick_messages[scoreboard_tick_step] , scoreboard_tick_face );
+
+          // I think this helps make the score spin animation look nicer?
+          setColor(OFF);
+          setColorOnFace( BLUE , scoreboard_tick_face );          
+
+          scoreboard_tick_step++;
+
+          if (scoreboard_tick_step==3) {
+            scoreboard_tick_step=0;
+            scoreboard_tick_face++;
+          }
+          
+          stateTimer.set( SCORE_TICK_TIME_MS );   
+
+          
+        } else {
+          // ..and this this lets you know the score is done spinning out
+          setColor(BLUE); 
+        }
       }
+    
     } return;
-
-
-    case SCOREBOARD
-      // Show how many levels they achived.
-      // User exists by longpress center to start new game.
-      // TODO: Just shows blue for now as placeholder
-
-      if (currentLevel) {
-        // Still have score to tick out?
-        
-      }
-
-      
-
-    } return;      
 
     case WIN: {
       // They deserve a nice rainbox.
@@ -587,8 +604,12 @@ byte normalizeFace( byte f ) {
   return f;
 }
 
-// Find opostie face
 
+byte nextFaceClockwise( byte f ) {
+  return normalizeFace( f+1 );
+}
+
+// Find opostie face
 byte opositeFace( byte f ) {
   return normalizeFace( f + (FACE_COUNT/2) );
 }
@@ -738,11 +759,24 @@ struct puzzle_t {
 
 };
 
-void showNextScoreboardStep( byte f , byte phase ) {
-  if ( (scoreboardMinor&0x01) != phase ) {
-    return;
+void showScore( byte centerFace , byte count ) {
+
+  setColor(OFF);
+  setColorOnFace( GREEN , centerFace );
+
+  byte edgeFace = nextFaceClockwise( nextFaceClockwise( centerFace) );  // Start with the first edge pixel which is oposite the center one minus one.       
+
+
+  while (count) {   
+
+    
+    setColorOnFace( RED , edgeFace );
+    edgeFace = nextFaceClockwise( edgeFace );
+    
+    count--;
+
   }
-  }
+
 }
 
 puzzle_t puzzle; 
@@ -826,20 +860,22 @@ bool updateStatePetalOnFace(byte f) {
         setColor( RED );        // TODO: we can be more creative here! 
         return true;
 
-      case SHOW_SCORE_STEP_EVEN:  
-        if ( scoreboardMinor & 0x01) == 0 ) {
-          nextScoreboardStep(f);          
-        }
-        setValueSentOnFace( ACK_SCORE_STEP_EVEN , f  ); 
-        return true;
-        
-      case SHOW_SCORE_STEP_ODD:
-        if ( scoreboardMinor & 0x01) == 1 ) {
-          nextScoreboardStep(f);           
-        }
-        setValueSentOnFace( ACK_SCORE_STEP_ODD , f  ); 
-        return true;
-        
+      case SHOW_SCORE_0:
+        showScore( f , 0 );
+        return true; 
+
+      case SHOW_SCORE_1:
+        showScore( f , 1 );
+        return true; 
+
+      case SHOW_SCORE_2:
+        showScore( f , 2 );
+        return true; 
+
+      case SHOW_SCORE_3:
+        showScore( f , 3 );
+        return true;         
+
       case SHOW_WIN:            // Show a pretty winning flurish.
         showStudio54();         
         return true;
@@ -914,10 +950,6 @@ void resetGameBecomeCenter() {
   setColor(OFF);
   setValueSentOnAllFaces( SHOW_RESET );   // Reset all petals to level 0    
   buttonPressed();    // Clear any pending button presses so we can detect the press to start the game from BLOOM state
-  
-  scoreboardMajor=0;     // I know it seems premature to reset these here, but why procrastinate? 
-  scoreboardMinor=0;   
-
 }
 
 void loop() {
@@ -934,14 +966,11 @@ void loop() {
       setValueSentOnAllFaces(IDLE);
       centerFace=f;
       setValueSentOnFace( READY , centerFace );      
-      currentLevel=0;
-      scoreboardMajor=0;     
-      scoreboardMinor=0;   
+      currentLevel=0;      
 
       // Very quick visual indication that we are ready and pointing to center. 
       setColor(OFF);
-      setColorOnFace( YELLOW , centerFace );
-      
+      setColorOnFace( YELLOW , centerFace );     
     }
   }
   
