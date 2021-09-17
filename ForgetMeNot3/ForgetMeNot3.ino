@@ -158,6 +158,7 @@ enum messages_t {
   
   SHOW_PUZZLE,        // Pick a random puzzle to show based on puzzle type for current level.
   SHOW_PAUSE,         // Show green on face pointing to center
+  SHOW_UNCHANGED,     // Identical to SHOW_PUZZLE except will send a button if pressed. Broken out for clarity and ease of adding stuff later. 
   SHOW_CHANGED,       // Change your display based on current puzzle type and difficulty (only sent to faces that should change)
   SHOW_CORRECT,       // When user makes correct pick, all tiles get this (currently green).
   SHOW_WRONG_MISSED,  // When user makes a wrong pick, this is shown on the missed tile (currently green)
@@ -330,7 +331,6 @@ void updateStateCenter() {
         } 
       }
 
-      setColor( random(1) ? WHITE : RED );
     } return;
       
 
@@ -341,8 +341,10 @@ void updateStateCenter() {
       if (progress < 255 ) {
         // Animation running, show center face ticking down to full black...
         // TODO: Does this look right?
-        byte darkface = (byte) ((progress * (FACE_COUNT-1)) / 255);
-        setColorOnFace( OFF , darkface );
+        byte darkface = (byte) ((progress * (FACE_COUNT)) / 255);   // Intiontionally 1 too big so we get an extra  step with all pixels on (looks nicer)
+        if (darkface>0) {
+          setColorOnFace( OFF , darkface-1 );
+        }
       } else {
         // Your time to study the puzzle is up! Go dark!
         setColor(OFF);
@@ -366,10 +368,11 @@ void updateStateCenter() {
           if (f==changedPetal) {                        // TODO: Condense with `x?y:z` if we need space 
             setValueSentOnFace( SHOW_CHANGED , f );
           } else {
-            setValueSentOnFace( SHOW_PUZZLE , f );            
+            setValueSentOnFace( SHOW_UNCHANGED , f ); 
           }
         }
         
+        setColor(YELLOW);        
         gameState=CHANGED;               
       }
     } return;
@@ -381,9 +384,7 @@ void updateStateCenter() {
       // scan though all petals and see if any buttons have been pressed                                  
       FOREACH_FACE(f) {
         if (!isValueReceivedOnFaceExpired(f) && getLastValueReceivedOnFace(f)==PRESSED ) {
-          
           // This petal had its button pressed
-
           if (f==changedPetal) {
             // They picked the right petal!
             // TODO: Make even harder stages where you have to pick mulitple changed petals! (already in the level data structure)
@@ -393,8 +394,8 @@ void updateStateCenter() {
             setColor(GREEN);
           } else {
             // They pressed the wrong petal :(
+            setValueSentOnAllFaces(  SHOW_WRONG_OTHERS );                            
             setValueSentOnFace( SHOW_WRONG_MISSED , changedPetal );     // Show them the one they _should_ have pressed. 
-            setValueSentOnAllFaces(  SHOW_WRONG_OTHERS );                
             gameState=SHOW_ANSWER; 
             stateTimer.set( SHOW_ANSWER_TIME_MS );
             setColor(RED);                          // I like RED here better than YELLOW, don't you? 
@@ -710,17 +711,30 @@ bool updateStatePetalOnFace(byte f) {
         setColor(OFF);        // This is an editorial decision. I like it all going dark here. 
 
         // Clear any pending button press to get ready for SHOW_CHANGED when user can press button
-        setValueSentOnFace( IDLE , f ); 
-        
+        buttonPressed();    
+        setValueSentOnAllFaces( IDLE ); 
+                
         return true;
         
-      case SHOW_CHANGED:        // Show the current puzzle on our pixels, but in the "changed" version
+      case SHOW_CHANGED:             // Show the current puzzle on our pixels, but in the "changed" version
         puzzle.show( f , true );     // Show a current puzzle, changed
 
         if (buttonPressed()) {
           setValueSentOnFace( PRESSED , f  );     // We use the petals's sticky value sent to hold the pressed button state
         }        
         return true;
+
+      case SHOW_UNCHANGED:          // Show the current puzzle on our pixels, but in the "changed" version (currently same as shown by SHOW_PUZZLE)
+        puzzle.show( f , false );   // Show a current puzzle, unchanged
+
+        if (buttonPressed()) {
+          setValueSentOnFace( PRESSED , f  );     // We use the petals's sticky value sent to hold the pressed button state
+        }        
+        return true;
+
+        // TODO: This could be combined with SHOW_PUZZLE to save space
+        // TODO: This could do something to make recognizing the orginal pattern harder at higher difficulty levels.
+        
 
       case SHOW_CORRECT:             // Indicate to the user they picked the right peice
 
@@ -731,7 +745,7 @@ bool updateStatePetalOnFace(byte f) {
           currentLevel++;
         }
         
-        setColor( GREEN );      // TODO: we can be more creative here! 
+        setColor( GREEN );      // TODO: we can be more creative here! Maybe a animation blooming out green and then back into the singe inward facing pixel?
         setColorOnFace( WHITE , random( FACE_COUNT - 1) );    // We need some sparkle here - they got it right, lets celibrate!
         return true;
 
