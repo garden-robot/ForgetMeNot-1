@@ -191,6 +191,9 @@ const byte GREEN_HUE = 77;
 const byte YELLOW_HUE = 42;
 
 
+// Cycle though these colors on each rotation around the scoreboard. Taken from the instruction manual. 
+Color scoreboard_cycle_colors[] = { OFF , RED , ORANGE , YELLOW, GREEN };
+
 struct stateTimer_t {
 
   Timer timer;
@@ -322,6 +325,7 @@ byte changedPetal;
 // Used by the center for the final scoreboard animatimation
 byte scoreboard_tick_face=0;
 byte scoreboard_tick_step=0;
+byte scoreboard_tick_cycle=0;
 
 // We are the center, update our state
 
@@ -482,10 +486,11 @@ void updateStateCenter() {
       // TODO: Maybe some animation here? 
 
       if (progress==255) {
-        setColor( BLUE );     // For now show blue in the center to indicate scoreboard
         gameState = SCOREBOARD;
         scoreboard_tick_face=0;
         scoreboard_tick_step=0;
+        setColor( scoreboard_cycle_colors[0] );     
+        scoreboard_tick_cycle=1;        
         setValueSentOnAllFaces( SHOW_SCORE_0 ); 
         stateTimer.set( SCORE_START_TIME_MS );   
 
@@ -510,8 +515,8 @@ void updateStateCenter() {
           setValueSentOnFace( scoreboard_tick_messages[scoreboard_tick_step] , scoreboard_tick_face );
 
           // I think this helps make the score spin animation look nicer?
-          setColor(OFF);
-          setColorOnFace( BLUE , scoreboard_tick_face );          
+
+          setColorOnFace( scoreboard_cycle_colors[scoreboard_tick_cycle] , scoreboard_tick_face );          
 
           scoreboard_tick_step++;
 
@@ -521,6 +526,7 @@ void updateStateCenter() {
 
             if (scoreboard_tick_face == FACE_COUNT ) {
               scoreboard_tick_face = 0;   // Wrap around. Petals will keep track of how many times they have been ticked and will take care of cycling to the next color. 
+              scoreboard_tick_cycle++;
             }
           }
           
@@ -761,8 +767,6 @@ struct puzzle_t {
 
 };
 
-// Cycle though these colors on each rotation around the scoreboard. Taken from the instruction manual. 
-Color scoreboard_cycle_colors[] = { OFF , RED , ORANGE , YELLOW, GREEN };
 
 // How many times have we gone around the scoreboard display so far (used to set the color)
 byte scoreboard_cycle;
