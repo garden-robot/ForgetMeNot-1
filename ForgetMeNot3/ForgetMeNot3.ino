@@ -20,7 +20,7 @@ struct level_t {
 // Make PROGMEM if we run out of RAM
 level_t levels[MAX_LEVEL] {
   { COLOR     , 1 , 1  }, // Level  0
-  { ROTATION     , 1 , 1  }, // Level  1
+  { COLOR     , 1 , 1  }, // Level  1
   { COLOR     , 1 , 1  }, // Level  2
   { COLOR     , 1 , 1  }, // Level  3
   { COLOR     , 2 , 1  }, // Level  4
@@ -183,14 +183,9 @@ enum messages_t {
   
 };
 
-// Cycle though these colors on each rotation around the scoreboard. Taken from the instruction manual. 
-
-Color scoreboard_rotation_colors[] = { RED , ORANGE , YELLOW, GREEN };
-
 
 // Current play level
 byte currentLevel;
-
 
 const byte GREEN_HUE = 77;
 const byte YELLOW_HUE = 42;
@@ -238,7 +233,8 @@ const word ANSWER_TIME_MS = 2000;
 const word SCORE_START_TIME_MS = 500;    
 
 // How long between level ticks in scoreboard display. 
-const word SCORE_TICK_TIME_MS = 500;    
+#warning slow for testing
+const word SCORE_TICK_TIME_MS = 100;    
 
 void setup() {
   // Default display at power up
@@ -494,7 +490,7 @@ void updateStateCenter() {
         stateTimer.set( SCORE_START_TIME_MS );   
 
         #warning 
-        currentLevel=15;
+        currentLevel=55;
       }
     } return;
 
@@ -503,8 +499,10 @@ void updateStateCenter() {
 
       if (progress==255) {      // Same result, but more efficient that checking isExpired() 
         // time for next tick
+        
         if (currentLevel) {
           // Still have more levels to tick off
+          currentLevel--;
 
           // Convert the step into a sendable message. There should be a better way. 
           static const byte scoreboard_tick_messages[] = { SHOW_SCORE_1 , SHOW_SCORE_2 , SHOW_SCORE_3 };
@@ -520,6 +518,10 @@ void updateStateCenter() {
           if (scoreboard_tick_step==3) {
             scoreboard_tick_step=0;
             scoreboard_tick_face++;
+
+            if (scoreboard_tick_face == FACE_COUNT ) {
+              scoreboard_tick_face = 0;   // Wrap around. Petals will keep track of how many times they have been ticked and will take care of cycling to the next color. 
+            }
           }
           
           stateTimer.set( SCORE_TICK_TIME_MS );   
@@ -759,25 +761,49 @@ struct puzzle_t {
 
 };
 
+// Cycle though these colors on each rotation around the scoreboard. Taken from the instruction manual. 
+Color scoreboard_cycle_colors[] = { OFF , RED , ORANGE , YELLOW, GREEN };
+
+// How many times have we gone around the scoreboard display so far (used to set the color)
+byte scoreboard_cycle;
+
+// use this to detect when we have going around a full cycle
+byte scoreboard_count_prev; 
+
 void showScore( byte centerFace , byte count ) {
+
+  if (count ==1 && scoreboard_count_prev==3) {
+    // We have gone all the way around, increment to next display color
+    scoreboard_cycle++;    
+  }
+
+  scoreboard_count_prev = count; 
 
   setColor(OFF);
   setColorOnFace( GREEN , centerFace );
 
   byte edgeFace = nextFaceClockwise( nextFaceClockwise( centerFace) );  // Start with the first edge pixel which is oposite the center one minus one.       
 
+  byte fgColorIndex =  scoreboard_cycle+1;    // Forground color (the cycle we are spinning)
+  byte bgColorIndex =  scoreboard_cycle;      // Backgroung color (the previous cycle we are writting over)
 
-  while (count) {   
+  for( byte i =1; i <= 3; i++ ) {
 
+    byte cIndex; 
+
+    if (count>=i) {
+      cIndex = fgColorIndex;
+    } else {
+      cIndex = bgColorIndex;
+    }
     
-    setColorOnFace( RED , edgeFace );
+    setColorOnFace( scoreboard_cycle_colors[cIndex] , edgeFace );
     edgeFace = nextFaceClockwise( edgeFace );
     
-    count--;
-
   }
 
 }
+
 
 puzzle_t puzzle; 
 
@@ -832,7 +858,8 @@ bool updateStatePetalOnFace(byte f) {
 
         if (buttonPressed()) {
           setValueSentOnFace( PRESSED , f  );     // We use the petals's sticky value sent to hold the pressed button state
-        }        
+        }     
+
         return true;
 
         // TODO: This could be combined with SHOW_PUZZLE to save space
@@ -967,6 +994,8 @@ void loop() {
       centerFace=f;
       setValueSentOnFace( READY , centerFace );      
       currentLevel=0;      
+      scoreboard_cycle=0;   
+      scoreboard_count_prev=0;
 
       // Very quick visual indication that we are ready and pointing to center. 
       setColor(OFF);
