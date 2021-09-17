@@ -827,7 +827,7 @@ bool updateStatePetal() {
   // but thats OK since you deserve what you get in this case. 
 
   FOREACH_FACE(f) {
-    if (updateStatePetalOnFace(centerFace)) {
+    if (updateStatePetalOnFace(f)) {
       // We found a center
       centerFace=f;
       return false;
