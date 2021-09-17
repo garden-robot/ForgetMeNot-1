@@ -236,7 +236,6 @@ const word ANSWER_TIME_MS = 2000;
 const word SCORE_START_TIME_MS = 500;    
 
 // How long between level ticks in scoreboard display. 
-#warning slow for testing
 const word SCORE_TICK_TIME_MS = 100;    
 
 void setup() {
@@ -493,9 +492,6 @@ void updateStateCenter() {
         scoreboard_tick_cycle=1;        
         setValueSentOnAllFaces( SHOW_SCORE_0 ); 
         stateTimer.set( SCORE_START_TIME_MS );   
-
-        #warning 
-        currentLevel=55;
       }
     } return;
 
@@ -526,7 +522,7 @@ void updateStateCenter() {
 
             if (scoreboard_tick_face == FACE_COUNT ) {
               scoreboard_tick_face = 0;   // Wrap around. Petals will keep track of how many times they have been ticked and will take care of cycling to the next color. 
-              scoreboard_tick_cycle++;
+              scoreboard_tick_cycle++;    // Update the color we use for spinning the center. 
             }
           }
           
@@ -534,7 +530,7 @@ void updateStateCenter() {
 
           
         } else {
-          // ..and this this lets you know the score is done spinning out
+          // ..and this this lets you know the score is done spinning out. Good? 
           setColor(BLUE); 
         }
       }
