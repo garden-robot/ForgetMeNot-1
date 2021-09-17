@@ -449,10 +449,10 @@ void updateStateCenter() {
           setValueSentOnAllFaces( SHOW_WIN );    // A spectacular flurish
           
         } else {
-
-          gameState=RESET; 
-          setValueSentOnAllFaces( RESET );
-          
+          // Next round
+          gameState=BLOOM;
+          stateTimer.set( BLOOM_TIME_MS );                
+          setValueSentOnAllFaces( SHOW_BLOOM );    // Get petals ready for next round.               
         }
       }
 
