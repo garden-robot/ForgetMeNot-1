@@ -129,6 +129,8 @@ enum gameState_t {
                         // All petals red except the one that changed which is full green.
                         // Center stays yellow
                         // Exit at end of timeout and go to scoreboard.
+
+  SCOREBOARD_CLEAR,     // Clear petals, get ready to display scoreboard. 
   
   SCOREBOARD,           // Show what level they got to with a full screen animation
                         // Exit on user longpress center to start new game
@@ -166,18 +168,24 @@ enum messages_t {
 
   SHOW_WIN,           // When user beats all levels (currently animated rainbow)
 
+  SHOW_SCARE_CLEAR,      // Clear the petals for the Scoreboard animation. Note this is not locked in so should look consistant with a score step. 
   SHOW_SCORE_STEP_EVEN,  // Show the next step in a score progression. Message alternates between even and odd on each step.
-  SHOW_SCORE_STEP_ODD,   // First 4 steps are 0-3 red LEDs on permitier, then middle LED lights and starts progresion over. 
+  SHOW_SCORE_STEP_ODD,   // 0-3 LEDs on permitier, then starts over in next scoreboard roation color
 
   // Sent by Petals
 
   IDLE,                  // Sent by default
   PRESSED,               // Button pressed since last transition. Cleared whenever the petal gets a new message from center.
-  
+
+  ACK_SCORE_CLEAR,       // Ready to start the scoreboard display
   ACK_SCORE_STEP_EVEN,   // Sent after getting SHOW_SCORE_STEP_EVEN to enable ping-pong acking
   ACK_SCORE_STEP_ODD     // Sent after getting SHOW_SCORE_STEP_ODD to enable ping-pong acking   
   
 };
+
+// Cycle though these colors on each rotation around the scoreboard. Taken from the instruction manual. 
+
+Color scoreboard_rotation_colors[] = { RED , ORANGE , YELLOW, GREEN };
 
 
 // Current play level
@@ -287,10 +295,21 @@ boolean doWeHave6Neighboors() {
   return true;
 }
 
+// Return true if all facea are currently getting specified message
 
-void showRainbowFlurish() {
+boolean checkAll6FacesGetting( byte message ) {
+
+  FOREACH_FACE(f) {
+    if (isValueReceivedOnFaceExpired(f) || getLastValueReceivedOnFace( f) != message ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void showStudio54() {
     uint32_t m = millis(); 
-    setColor( makeColorHSB( ( m >> 8 ) & 0xff , 0xff , m & 0xff ) );     // TODO: We owe them better than this crappy rainbow. 
+    setColor( makeColorHSB( ( m >> 6 ) & 0xff , 0xff , m & 0xff ) );     // TODO: After 72 levels, we owe them better than this crappy rainbow. 
 }
 
 // Current game state (only valid if weAreCenterFlag==true)
@@ -298,6 +317,10 @@ gameState_t gameState;
 
 // Which petal changed? (only valid in CHANGED state)
 byte changedPetal;
+
+// Used by both the center and the petals for the final scoreboard animation, but used differently.
+byte scoreboardMinor;    // This counts the 3 pixels on the edge of each petal.
+byte scoreboardMajor;    // For center, which face we are on. For petal, which roation cycle are we on. 
 
 // We are the center, update our state
 
@@ -424,11 +447,10 @@ void updateStateCenter() {
           setValueSentOnAllFaces( SHOW_WIN );    // A spectacular flurish
           
         } else {
-
+                    
           gameState=BLOOM; 
           stateTimer.set( BLOOM_TIME_MS );                
           setValueSentOnAllFaces( SHOW_BLOOM );    // Get petals ready for next round.
-          
         }
       }
 
@@ -439,18 +461,33 @@ void updateStateCenter() {
       // TODO: Maybe some animation here? 
 
       if (progress==255) {
-        setColor( BLUE );
-        setValueSentOnAllFaces( SHOW_SCORE_STEP_EVEN );    // TODO: Make real scoreboard display
-        gameState = SCOREBOARD;        
-        buttonPressed();              // Clear any pending button pressees to be ready for the presss that will terminate SCOREBOARD
+        setColor( BLUE );     // For now show blue in the center to indicate scoreboard
+        gameState = SCOREBOARD_CLEAR;
+        setValueSentOnAllFaces( SHOW_SCOREBOARD_CLEAR ); 
       }
     } return;
 
 
-    case SCOREBOARD: {
+    case SCOREBOARD_CLEAR: {
+      // Wait for all the petals to ACK that they have cleared and are ready for scoreboard display
+      if (checkAll6FacesGetting( ACK_SCOREBOARD_CLEAR )) {
+        gameState = SCOREBOARD;        
+        setColor( OFF );
+      }
+    } return;
+
+
+    case SCOREBOARD
       // Show how many levels they achived.
       // User exists by longpress center to start new game.
       // TODO: Just shows blue for now as placeholder
+
+      if (currentLevel) {
+        // Still have score to tick out?
+        
+      }
+
+      
 
     } return;      
 
@@ -458,7 +495,7 @@ void updateStateCenter() {
       // They deserve a nice rainbox.
       // Exits when user longpresses a center to start new game
 
-      showRainbowFlurish();
+      showStudio54();
     } return;            
   }
 }
@@ -676,12 +713,14 @@ struct puzzle_t {
 
 };
 
+void showNextScoreboardStep( byte f , byte phase ) {
+  if ( (scoreboardMinor&0x01) != phase ) {
+    return;
+  }
+  }
+}
+
 puzzle_t puzzle; 
-
-
-
-// This makes sure we only update the level once per cycle though the states
-bool levelUpdatedInterlock;
 
 // Update the petal based on message received from a center on face f
 // return true if there was a center on the face, false if nothing or a petal on that face
@@ -757,13 +796,22 @@ bool updateStatePetalOnFace(byte f) {
         setColor( RED );        // TODO: we can be more creative here! 
         return true;
 
-      case SHOW_SCORE_STEP_EVEN:   // TODO: Placeholders
+      case SHOW_SCORE_STEP_EVEN:  
+        if ( scoreboardMinor & 0x01) == 0 ) {
+          nextScoreboardStep(f);          
+        }
+        setValueSentOnFace( ACK_SCORE_STEP_EVEN , f  ); 
+        return true;
+        
       case SHOW_SCORE_STEP_ODD:
-        setColor( BLUE);        // TODO: we can be more creative here! 
+        if ( scoreboardMinor & 0x01) == 1 ) {
+          nextScoreboardStep(f);           
+        }
+        setValueSentOnFace( ACK_SCORE_STEP_ODD , f  ); 
         return true;
         
       case SHOW_WIN:            // Show a pretty winning flurish.
-        showRainbowFlurish();         
+        showStudio54();         
         return true;
 
     } 
@@ -835,6 +883,10 @@ void resetGameBecomeCenter() {
   setColor(YELLOW);
   setValueSentOnAllFaces( SHOW_BLOOM_0 );   // Reset all petals to level 0    
   buttonPressed();    // Clear any pending button presses so we can detect the press to start the game from BLOOM state
+  
+  scoreboardMajor=0;     // I know it seems premature to reset these here, but why procrastinate? 
+  scoreboardMinor=0;   
+
 }
 
 void loop() {
@@ -851,6 +903,8 @@ void loop() {
       weAreCenter=false;
       centerFace=f;
       currentLevel=0;
+      scoreboardMajor=0;     
+      scoreboardMinor=0;   
     }
   }
   
