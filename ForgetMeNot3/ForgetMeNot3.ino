@@ -100,6 +100,9 @@ bool weAreCenter=false;
 // The current game state, only valid when weAreCenterFlag is true
 
 enum gameState_t {
+
+  RESET,                // Get ready to start a new game as center.
+                        // Exit when both (1) all petals are ready and (2) button is lifted (makes for nice smooth UI) 
   
   BLOOM,                // Show that we are getting ready to start next level
                         // Center animate green to yellow, petals animate full green to just one green pixel facing center
@@ -153,7 +156,7 @@ enum messages_t {
 
   // Sent by Center
 
-  SHOW_BLOOM_0,       // Show single green pixel pointing to center. Reset level to 0.
+  SHOW_RESET,         // Show single yellow pixel pointing to center. Reset level to 0.
   SHOW_BLOOM,         // Show single green pixel pointing to center. Increment level. 
   
   SHOW_PUZZLE,        // Pick a random puzzle to show based on puzzle type for current level.
@@ -171,9 +174,11 @@ enum messages_t {
 
   // Sent by Petals
 
+  READY,                 // Ready to start a new game
+
   IDLE,                  // Sent by default
   PRESSED,               // Button pressed since last transition. Cleared whenever the petal gets a new message from center.
-  
+
   ACK_SCORE_STEP_EVEN,   // Sent after getting SHOW_SCORE_STEP_EVEN to enable ping-pong acking
   ACK_SCORE_STEP_ODD     // Sent after getting SHOW_SCORE_STEP_ODD to enable ping-pong acking   
   
@@ -307,13 +312,33 @@ void updateStateCenter() {
   
   switch (gameState) {
 
+    case RESET: {
+
+      bool allPetalsReadyFlag = true;
+      
+      FOREACH_FACE(f) {
+         if ( !isValueReceivedOnFaceExpired(f) && getLastValueReceivedOnFace(f) == READY ) {
+          setColorOnFace( YELLOW , f );
+         } else {
+          allPetalsReadyFlag = false;
+         }
+      }
+
+      if (allPetalsReadyFlag && !buttonDown()) {
+        gameState=BLOOM;
+        stateTimer.set( BLOOM_TIME_MS );                
+        setValueSentOnAllFaces( SHOW_BLOOM );    // Get petals ready for next round.        
+      }
+      
+    } return;
+
     case BLOOM: {
       // Durring bloom animation we change color from GREEN to YELLOW. Ends with YELLOW after timer expires.
       byte hue = ( ( YELLOW_HUE * progress ) + ( GREEN_HUE * (255-progress)) ) / 255;
       setColor( makeColorHSB(  hue , 255 , 255 ) );
 
       if (progress==255) {
-        
+       
         // With a little sparkle once we have fully bloomed
       
         if ( (millis()&0x08) ==0x08) {        
@@ -425,9 +450,8 @@ void updateStateCenter() {
           
         } else {
 
-          gameState=BLOOM; 
-          stateTimer.set( BLOOM_TIME_MS );                
-          setValueSentOnAllFaces( SHOW_BLOOM );    // Get petals ready for next round.
+          gameState=RESET; 
+          setValueSentOnAllFaces( RESET );
           
         }
       }
@@ -693,7 +717,12 @@ bool updateStatePetalOnFace(byte f) {
 
     switch (messageFromCenter) {
 
-      case SHOW_BLOOM_0:        // BLOOM_0 is special case that starts a new game, but display logic is same. The reset logic is special cased in loop().
+      case SHOW_RESET:        // Starts a new game. Show a single yellow pixel pointing to center. 
+      
+        // The reset logic is special cased in loop() sicne it changes global state.        
+        return true;
+
+      
       case SHOW_BLOOM:          // Show single green pixel pointing to center. Increment level.         
 
         // Note here that we call puzzle.set() repeatedly while the bloom animation is running. This adds some entorpy. 
@@ -794,6 +823,8 @@ bool updateStatePetal() {
   // This is slightly redundant (we check one face twice), but that is OK.
   // Note that we only have all this extra logic to handle the edge case of a tile collection getting
   // taken appart in the middle of a game and then getting put back together again but with a petal rotated.
+  // This will also result in osscilation in the case where multipule existing centers are put into contact with an existing leaf, 
+  // but thats OK since you deserve what you get in this case. 
 
   FOREACH_FACE(f) {
     if (updateStatePetalOnFace(centerFace)) {
@@ -829,11 +860,10 @@ bool updateStatePetal() {
 
 void resetGameBecomeCenter() {
   weAreCenter=true;      
-  gameState=BLOOM;
-  stateTimer.set( BLOOM_TIME_MS );
+  gameState=RESET;
   currentLevel=0;
-  setColor(YELLOW);
-  setValueSentOnAllFaces( SHOW_BLOOM_0 );   // Reset all petals to level 0    
+  setColor(OFF);
+  setValueSentOnAllFaces( SHOW_RESET );   // Reset all petals to level 0    
   buttonPressed();    // Clear any pending button presses so we can detect the press to start the game from BLOOM state
 }
 
@@ -844,13 +874,19 @@ void loop() {
   // First check if any neighboor is starting a new game as center. This will make us his petal
   // unconditionally, even if we are currently a center.
 
-
   FOREACH_FACE(f) {
-    if ( !isValueReceivedOnFaceExpired(f) && getLastValueReceivedOnFace(f) == SHOW_BLOOM_0) {
-      // Reset game as petal. Note this will be repeated as long as BLOOM_0 is in process, but it is idempotent 
+    if ( !isValueReceivedOnFaceExpired(f) && getLastValueReceivedOnFace(f) == SHOW_RESET) {
+      // Reset game as petal. Note this will be repeated as long as RESET is in process, but it is idempotent 
       weAreCenter=false;
+      setValueSentOnAllFaces(IDLE);
       centerFace=f;
+      setValueSentOnFace( READY , centerFace );      
       currentLevel=0;
+
+      // Very quick visual indication that we are ready and pointing to center. 
+      setColor(OFF);
+      setColorOnFace( YELLOW , centerFace );
+      
     }
   }
   
